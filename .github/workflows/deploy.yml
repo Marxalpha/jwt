@@ -2,38 +2,57 @@ name: Deploy to EC2
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # Use latest version
+
+      - name: Cache Node Modules
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20  # Use LTS version
+          cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci  # Clean install for reproducibility
 
       - name: Build Application
         run: npm run build
 
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v0.1.6
+      - name: Upload Artifact to S3 (Optional for CodePipeline)
+        if: success()
+        uses: aws-actions/upload-s3@v2
+        with:
+          path: ./out  # Next.js build output
+          bucket: ${{ secrets.AWS_S3_BUCKET }}
+          bucket-region: ${{ secrets.AWS_REGION }}
+          key: nextjs-build-${{ github.sha }}.zip
+
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1  # Latest version
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
+          key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
             cd /path/to/your/project
-            git pull origin main
-            npm install
-            npm run build
-            pm2 restart nextjs-app
+            pm2 stop nextjs-app
+            rm -rf ./*
+            unzip /tmp/nextjs-build.zip -d .  # If using S3 artifact
+            npm ci --production  # Install only production dependencies
+            pm2 start nextjs-app
