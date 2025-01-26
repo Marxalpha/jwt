@@ -3,6 +3,7 @@ import connectDB from "@/lib/mongodb";
 import User from "@/models/User";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { nanoid } from "nanoid";
 
 export async function POST(req: Request) {
   try {
@@ -47,15 +48,31 @@ export async function POST(req: Request) {
       { status: 200 }
     );
 
-    // Set access token cookie
+    // Get the domain from request headers
+    const domain = req.headers.get("host")?.split(":")[0] || "localhost";
+
+    // Set token cookie with more permissive settings for EC2
     response.cookies.set({
       name: "token",
       value: accessToken,
       httpOnly: true,
-      secure: true,
-      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production", // Only true in production
+      sameSite: "lax", // Changed from strict to lax
       path: "/",
-      maxAge: 900, // 15 minutes in seconds
+      domain: domain, // Set domain dynamically
+      maxAge: 86400, // 1 day
+    });
+
+    // Set CSRF token cookie
+    response.cookies.set({
+      name: "csrf-token",
+      value: nanoid(), // Make sure to import nanoid
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      domain: domain,
+      maxAge: 86400,
     });
 
     // Set refresh token cookie
